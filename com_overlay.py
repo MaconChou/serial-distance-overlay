@@ -7,8 +7,9 @@ COM Port 距離訊息 → 螢幕色彩覆蓋工具 (Windows)
 執行:  python com_overlay.py
 
 訊息規則 (每行一則, 以換行結尾):
-  off              -> 不動作
-  distance:數字    -> 依範圍規則改變指定螢幕的覆蓋顏色/透明度
+  off              -> 恢復無覆蓋
+  distance:數字    -> 依範圍規則改變指定螢幕的覆蓋顏色/透明度 (範圍外 = 無覆蓋)
+  斷線 / 未知訊息  -> 紅色 50% 與藍色 50% 交替閃爍 (可勾選是否啟用)
 
 覆蓋視窗為「滑鼠穿透」+「不搶焦點」，不影響原本操作，只改變畫面顏色。
 """
@@ -40,6 +41,8 @@ if IS_WIN:  # 讓 Tk 座標與實體像素一致 (多螢幕/縮放)
             pass
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "com_overlay_config.json")
+ALERT_COLORS = ("#ff0000", "#0000ff")   # 紅 / 藍 交替
+ALERT_OPACITY = 50                      # 50%
 DIST_RE = re.compile(r"^distance\s*:\s*(-?\d+(?:\.\d+)?)$", re.IGNORECASE)
 
 DEFAULT_RULES = [
@@ -140,6 +143,8 @@ class App:
         self.monitors = get_monitors(root)
         self.rules = [dict(r) for r in DEFAULT_RULES]
         self.pick_color = "#ff0000"
+        self.alert_job = None
+        self.alert_phase = 0
 
         self._build_ui()
         self._load_config()
@@ -176,11 +181,20 @@ class App:
         self.cb_mon = ttk.Combobox(f2, values=names, state="readonly", width=40)
         self.cb_mon.current(0)
         self.cb_mon.grid(row=0, column=0, **pad)
-        self.cb_mon.bind("<<ComboboxSelected>>", lambda e: self._clear_overlays())
-        self.var_hide_off = tk.BooleanVar(value=False)
-        ttk.Checkbutton(f2, text='收到 "off" 時隱藏覆蓋 (預設不動作)',
-                        variable=self.var_hide_off).grid(row=0, column=1, **pad)
-        ttk.Button(f2, text="清除覆蓋", command=self._clear_overlays).grid(row=0, column=2, **pad)
+        self.cb_mon.bind("<<ComboboxSelected>>", self._on_monitor_change)
+        ttk.Button(f2, text="清除覆蓋", command=self._clear_overlays).grid(row=0, column=1, **pad)
+
+        # --- 異常警示
+        f2b = ttk.LabelFrame(self.root, text="異常警示 (斷線 / 收到未知訊息)")
+        f2b.pack(fill="x", padx=8, pady=6)
+        self.var_alert = tk.BooleanVar(value=True)
+        ttk.Checkbutton(f2b, text="啟用 紅50% / 藍50% 交替閃爍",
+                        variable=self.var_alert,
+                        command=self._on_alert_toggle).grid(row=0, column=0, **pad)
+        ttk.Label(f2b, text="間隔(ms):").grid(row=0, column=1, **pad)
+        self.sp_interval = ttk.Spinbox(f2b, from_=100, to=5000, increment=100, width=7)
+        self.sp_interval.set("500")
+        self.sp_interval.grid(row=0, column=2, **pad)
 
         # --- 規則
         f3 = ttk.LabelFrame(self.root, text="距離範圍 → 顏色 / 透明度  (min ≤ 距離 < max，由上而下第一個符合者)")
@@ -256,6 +270,7 @@ class App:
             self.ser = None
             messagebox.showerror("連線失敗", str(e))
             return
+        self._clear_overlays()
         self.stop_evt.clear()
         self.thread = threading.Thread(target=self._reader, daemon=True)
         self.thread.start()
@@ -263,7 +278,8 @@ class App:
         self.lbl_status.config(text=f"● 已連線 {sel}", foreground="green")
         self._log(f"[系統] 已連線 {sel}")
 
-    def _disconnect(self):
+    def _disconnect(self, alert=False):
+        """alert=True: 非預期斷線 -> 啟動警示; 手動中斷 -> 清除覆蓋"""
         self.stop_evt.set()
         if self.thread:
             self.thread.join(timeout=1)
@@ -276,6 +292,10 @@ class App:
         self.btn_conn.config(text="連線")
         self.lbl_status.config(text="● 未連線", foreground="gray")
         self._log("[系統] 已中斷")
+        if alert:
+            self._start_alert()
+        else:
+            self._clear_overlays()
 
     def _reader(self):
         buf = b""
@@ -306,7 +326,7 @@ class App:
                     self._handle_line(val)
                 elif kind == "error":
                     self._log(f"[錯誤] {val}")
-                    self._disconnect()
+                    self._disconnect(alert=True)
         except queue.Empty:
             pass
         self.root.after(50, self._poll_queue)
@@ -315,12 +335,16 @@ class App:
     def _handle_line(self, line):
         self._log(f"RX: {line}")
         if line.lower() == "off":
-            if self.var_hide_off.get():
-                self._clear_overlays()
-            return  # 不動作
+            self._clear_overlays()          # 恢復無覆蓋 (同時停止警示)
+            return
         m = DIST_RE.match(line)
         if m:
+            self._stop_alert()
             self._apply_distance(float(m.group(1)))
+            return
+        # 未知訊息 -> 警示
+        self._log("  未知訊息，啟動警示")
+        self._start_alert()
 
     def _match_rule(self, d):
         for r in self.rules:
@@ -351,9 +375,46 @@ class App:
         return [i]
 
     def _clear_overlays(self):
+        self._stop_alert()
         for ov in self.overlays.values():
             ov.destroy()
         self.overlays.clear()
+
+    # ------------------------------------------------------------ 警示 (紅/藍交替)
+    def _start_alert(self):
+        if not self.var_alert.get() or self.alert_job is not None:
+            return
+        self.alert_phase = 0
+        self._alert_tick()
+
+    def _stop_alert(self):
+        if self.alert_job is not None:
+            self.root.after_cancel(self.alert_job)
+            self.alert_job = None
+
+    def _alert_tick(self):
+        color = ALERT_COLORS[self.alert_phase]
+        self.alert_phase ^= 1
+        for idx in self._target_indices():
+            ov = self.overlays.get(idx)
+            if ov is None:
+                ov = self.overlays[idx] = Overlay(self.root, self.monitors[idx])
+            ov.show(color, ALERT_OPACITY)
+        try:
+            ms = max(100, int(self.sp_interval.get()))
+        except ValueError:
+            ms = 500
+        self.alert_job = self.root.after(ms, self._alert_tick)
+
+    def _on_alert_toggle(self):
+        if not self.var_alert.get() and self.alert_job is not None:
+            self._clear_overlays()
+
+    def _on_monitor_change(self, _e=None):
+        was_alert = self.alert_job is not None
+        self._clear_overlays()
+        if was_alert:
+            self._start_alert()
 
     def _test(self):
         try:
@@ -446,7 +507,8 @@ class App:
                 c = json.load(f)
             self.rules = c.get("rules", self.rules)
             self.cb_baud.set(str(c.get("baud", "115200")))
-            self.var_hide_off.set(c.get("hide_on_off", False))
+            self.var_alert.set(c.get("alert_enabled", True))
+            self.sp_interval.set(str(c.get("alert_interval_ms", 500)))
             mi = c.get("monitor", 0)
             if 0 <= mi < len(self.cb_mon["values"]):
                 self.cb_mon.current(mi)
@@ -457,7 +519,8 @@ class App:
         try:
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump({"rules": self.rules, "baud": self.cb_baud.get(),
-                           "hide_on_off": self.var_hide_off.get(),
+                           "alert_enabled": self.var_alert.get(),
+                           "alert_interval_ms": self.sp_interval.get(),
                            "monitor": self.cb_mon.current()},
                           f, ensure_ascii=False, indent=2)
         except Exception:

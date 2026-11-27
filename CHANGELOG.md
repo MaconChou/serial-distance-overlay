@@ -2,6 +2,16 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/)，版本遵循 [SemVer](https://semver.org/)。
 
+## [0.2.0] - 2026-11-27
+
+### Added
+- 斷線（非預期）或收到未知訊息時，紅 50% / 藍 50% 交替閃爍警示。
+- 警示可勾選啟用/停用，並可設定閃爍間隔（ms）。
+
+### Changed
+- 收到 `off` 改為恢復無覆蓋（移除「收到 off 時隱藏覆蓋」選項）。
+- 設定檔 `hide_on_off` 改為 `alert_enabled` 與 `alert_interval_ms`。
+
 ## [0.1.0] - 2026-11-27
 
 ### Added

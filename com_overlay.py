@@ -145,6 +145,7 @@ class App:
         self.pick_color = "#ff0000"
         self.alert_job = None
         self.alert_phase = 0
+        self.test_job = None
 
         self._build_ui()
         self._load_config()
@@ -234,11 +235,14 @@ class App:
 
         tf = ttk.Frame(f3)
         tf.pack(fill="x", padx=6, pady=4)
-        ttk.Label(tf, text="手動測試距離:").pack(side="left")
+        ttk.Label(tf, text="手動測試距離 (按住測試鈕):").pack(side="left")
         self.e_test = ttk.Entry(tf, width=8)
         self.e_test.insert(0, "20")
         self.e_test.pack(side="left", padx=4)
-        ttk.Button(tf, text="測試", command=self._test).pack(side="left")
+        self.btn_test = ttk.Button(tf, text="測試 (按住)")
+        self.btn_test.pack(side="left")
+        self.btn_test.bind("<ButtonPress-1>", self._test_press)
+        self.btn_test.bind("<ButtonRelease-1>", self._test_release)
 
         # --- Log
         f4 = ttk.LabelFrame(self.root, text="接收訊息")
@@ -416,11 +420,26 @@ class App:
         if was_alert:
             self._start_alert()
 
-    def _test(self):
+    # ------------------------------------------------------------ 手動測試 (按住)
+    def _test_press(self, _e=None):
         try:
-            self._apply_distance(float(self.e_test.get()))
+            self._test_value = float(self.e_test.get())
         except ValueError:
             messagebox.showwarning("提示", "請輸入數字")
+            return
+        self._stop_alert()
+        self._test_tick()
+
+    def _test_tick(self):
+        self._apply_distance(self._test_value)
+        self.test_job = self.root.after(100, self._test_tick)  # 按住期間持續套用
+
+    def _test_release(self, _e=None):
+        if self.test_job is None:
+            return
+        self.root.after_cancel(self.test_job)
+        self.test_job = None
+        self._clear_overlays()   # 放開 -> 恢復無覆蓋
 
     # ------------------------------------------------------------ 規則編輯
     def _refresh_rules(self):

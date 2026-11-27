@@ -2,6 +2,11 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/)，版本遵循 [SemVer](https://semver.org/)。
 
+## [0.2.1] - 2026-11-27
+
+### Changed
+- 手動「測試」鈕改為按住才套用測試距離，放開即恢復無覆蓋。
+
 ## [0.2.0] - 2026-11-27
 
 ### Added

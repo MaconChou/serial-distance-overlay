@@ -53,7 +53,7 @@ pyinstaller --noconsole --onefile com_overlay.py
 ## 測試用（無硬體）
 
 用虛擬序列埠（如 com0com）配對後，用任一序列終端機送出 `distance:20`；
-或直接用 GUI 的「手動測試距離」。
+或直接用 GUI 的「手動測試距離」：按住「測試」鈕期間套用該距離的顏色，放開即恢復無覆蓋。
 
 ## 授權
 

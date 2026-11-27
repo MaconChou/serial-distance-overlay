@@ -14,6 +14,7 @@ COM Port 距離訊息 → 螢幕色彩覆蓋工具 (Windows)
 覆蓋視窗為「滑鼠穿透」+「不搶焦點」，不影響原本操作，只改變畫面顏色。
 """
 import ctypes
+import datetime
 import json
 import os
 import queue
@@ -513,7 +514,8 @@ class App:
     # ------------------------------------------------------------ 其他
     def _log(self, s):
         self.txt.config(state="normal")
-        self.txt.insert("end", s + "\n")
+        ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        self.txt.insert("end", f"[{ts}] {s}\n")
         n = int(self.txt.index("end-1c").split(".")[0])
         if n > 300:
             self.txt.delete("1.0", f"{n - 300}.0")

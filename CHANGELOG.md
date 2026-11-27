@@ -2,6 +2,11 @@
 
 格式參考 [Keep a Changelog](https://keepachangelog.com/)，版本遵循 [SemVer](https://semver.org/)。
 
+## [0.2.2] - 2026-11-27
+
+### Added
+- 接收訊息與系統記錄加上時間戳記（`HH:MM:SS.mmm`）。
+
 ## [0.2.1] - 2026-11-27
 
 ### Changed
